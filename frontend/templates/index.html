@@ -1,0 +1,394 @@
+<!-- frontend/templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Translation App</title>
+    <link rel="stylesheet" href="{{ request.url_root }}static/style.css?ver=123">
+    <!-- Add Select2 for better dropdown experience -->
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>Translation Service</h1>
+        
+        <!-- Tab Navigation -->
+        <div class="tabs">
+            <button class="tab-button active" onclick="switchTab('text-tab')">Text Translation</button>
+            <button class="tab-button" onclick="switchTab('document-tab')">Document Translation</button>
+        </div>
+
+        <!-- Text Translation Tab -->
+        <div id="text-tab" class="tab-content active">
+            <div class="translation-box">
+                <div class="input-group">
+                    <label for="sourceLang">Source Language</label>
+                    <select id="sourceLang" class="language-select">
+                        <!-- Will be populated by JavaScript -->
+                    </select>
+                    <textarea id="sourceText" placeholder="Enter text to translate"></textarea>
+                </div>
+                
+                <button onclick="translateText()" class="translate-button">Translate</button>
+                
+                <div class="input-group">
+                    <label for="targetLang">Target Language</label>
+                    <select id="targetLang" class="language-select">
+                        <!-- Will be populated by JavaScript -->
+                    </select>
+                    <textarea id="translatedText" readonly placeholder="Translation will appear here"></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Document Translation Tab -->
+        <div id="document-tab" class="tab-content">
+            <div class="document-upload-box">
+                <div class="input-group">
+                    <label for="docSourceLang">Source Language</label>
+                    <select id="docSourceLang" class="language-select">
+                        <!-- Will be populated by JavaScript -->
+                    </select>
+                </div>
+
+                <div class="input-group">
+                    <label for="docTargetLang">Target Language</label>
+                    <select id="docTargetLang" class="language-select">
+                        <!-- Will be populated by JavaScript -->
+                    </select>
+                </div>
+
+                <div class="file-upload">
+                    <label for="documentFile">Upload Document (.docx, .xlsx, .pptx)</label>
+                    <input type="file" id="documentFile" accept=".docx,.xlsx,.pptx" />
+                </div>
+
+                <button onclick="translateDocument()" class="translate-button">Translate Document</button>
+
+                <div class="info-box">
+                    <h3>Supported Formats:</h3>
+                    <ul>
+                        <li>Word Documents (.docx)</li>
+                        <li>Excel Spreadsheets (.xlsx)</li>
+                        <li>PowerPoint Presentations (.pptx)</li>
+                    </ul>
+                </div>
+                 <!-- Add progress indicator -->
+                <div id="translation-progress" class="progress-container" style="display: none;">
+                <div class="progress-bar">
+                <div class="progress-fill"></div>
+                </div>
+                <div class="progress-text"></div>
+                </div>
+
+                <!-- Add error display -->
+                <div id="error-message" class="error-message" style="display: none;"></div>
+
+                <!-- Add file size info -->
+                <div class="file-info">
+                    <p>Maximum file size: 10MB</p>
+                    <p>Selected file: <span id="selected-file-info">No file selected</span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Tab switching
+        function switchTab(tabId) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('active');
+            });
+
+            // Show selected tab
+            document.getElementById(tabId).classList.add('active');
+            event.currentTarget.classList.add('active');
+        }
+
+        // Existing text translation code
+        async function loadLanguages() {
+            try {
+                const response = await fetch('/languages/');
+                const data = await response.json();
+                
+                const sourceLang = document.getElementById('sourceLang');
+                const targetLang = document.getElementById('targetLang');
+                const docSourceLang = document.getElementById('docSourceLang');
+                const docTargetLang = document.getElementById('docTargetLang');
+                
+                // Sort languages alphabetically
+                data.languages.sort((a, b) => a.name.localeCompare(b.name));
+                
+                // Populate all language dropdowns
+                [sourceLang, targetLang, docSourceLang, docTargetLang].forEach(select => {
+                    data.languages.forEach(lang => {
+                        select.add(new Option(lang.name, lang.code));
+                    });
+                });
+                
+                // Initialize Select2
+                $('.language-select').select2({
+                    placeholder: 'Select a language',
+                    width: '100%',
+                    theme: 'classic'
+                });
+                
+                // Set default values
+                ['sourceLang', 'docSourceLang'].forEach(id => {
+                    $(`#${id}`).val('en').trigger('change');
+                });
+                ['targetLang', 'docTargetLang'].forEach(id => {
+                    $(`#${id}`).val('es').trigger('change');
+                });
+                
+            } catch (error) {
+                console.error('Error loading languages:', error);
+                alert('Error loading languages. Please refresh the page.');
+            }
+        }
+
+        async function translateText() {
+            const sourceText = document.getElementById('sourceText').value;
+            const sourceLang = document.getElementById('sourceLang').value;
+            const targetLang = document.getElementById('targetLang').value;
+            
+            if (!sourceText.trim()) {
+                alert('Please enter text to translate');
+                return;
+            }
+            
+            const translateButton = document.querySelector('.translate-button');
+            translateButton.disabled = true;
+            translateButton.textContent = 'Translating...';
+            
+            try {
+                const response = await fetch('/translate/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: sourceText,
+                        source_lang: sourceLang,
+                        target_lang: targetLang
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Translation failed');
+                }
+                
+                const data = await response.json();
+                document.getElementById('translatedText').value = data.translation;
+            } catch (error) {
+                alert('Translation failed. Please try again.');
+                console.error('Translation error:', error);
+            } finally {
+                translateButton.disabled = false;
+                translateButton.textContent = 'Translate';
+            }
+        }
+
+        // New document translation code
+        async function translateDocument() {
+            const fileInput = document.getElementById('documentFile');
+            const sourceLang = document.getElementById('docSourceLang').value;
+            const targetLang = document.getElementById('docTargetLang').value;
+
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert('Please select a document to translate');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('source_lang', sourceLang);
+            formData.append('target_lang', targetLang);
+
+            const translateButton = document.querySelector('#document-tab .translate-button');
+            translateButton.disabled = true;
+            translateButton.textContent = 'Translating Document...';
+
+            try {
+                const response = await fetch('/translate/document/', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('Document translation failed');
+                }
+
+                // Create a blob from the response and download it
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = file.name.replace('.', `_translated_${targetLang}.`);
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+            } catch (error) {
+                alert('Document translation failed. Please try again.');
+                console.error('Translation error:', error);
+            } finally {
+                translateButton.disabled = false;
+                translateButton.textContent = 'Translate Document';
+            }
+        }
+
+        // Load languages when page loads
+        document.addEventListener('DOMContentLoaded', loadLanguages);
+
+        // File validation
+document.getElementById('documentFile').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    const fileInfo = document.getElementById('selected-file-info');
+    const maxSize = 10 * 1024 * 1024; // 10MB
+
+    if (file) {
+        const fileSize = (file.size / 1024 / 1024).toFixed(2);
+        fileInfo.textContent = `${file.name} (${fileSize}MB)`;
+
+        if (file.size > maxSize) {
+            showError(`File too large. Maximum size is 10MB. Your file is ${fileSize}MB`);
+            e.target.value = ''; // Clear the file input
+            fileInfo.textContent = 'No file selected';
+        } else {
+            hideError();
+        }
+    } else {
+        fileInfo.textContent = 'No file selected';
+    }
+});
+
+// Enhanced document translation
+async function translateDocument() {
+    const fileInput = document.getElementById('documentFile');
+    const sourceLang = document.getElementById('docSourceLang').value;
+    const targetLang = document.getElementById('docTargetLang').value;
+
+    if (!fileInput.files || fileInput.files.length === 0) {
+        showError('Please select a document to translate');
+        return;
+    }
+
+    const file = fileInput.files[0];
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('source_lang', sourceLang);
+    formData.append('target_lang', targetLang);
+
+    const translateButton = document.querySelector('#document-tab .translate-button');
+    translateButton.disabled = true;
+    translateButton.textContent = 'Translating Document...';
+
+    try {
+        // Hide error message and show progress
+        hideError();
+        showProgress();
+
+        // Start translation
+        const response = await fetch('/translate/document/', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Translation failed');
+        }
+
+        const data = await response.json();
+        
+        // Connect to WebSocket for progress updates
+        const ws = new WebSocket(`ws://${window.location.host}/ws/translation-progress/${data.task_id}`);
+        
+        ws.onmessage = function(event) {
+            const progress = JSON.parse(event.data);
+            updateProgress(progress.progress, progress.message);
+
+            if (progress.status === 'completed') {
+                downloadTranslatedFile(progress.download_url);
+                ws.close();
+            } else if (progress.status === 'error') {
+                showError(progress.message);
+                ws.close();
+            }
+        };
+
+        ws.onerror = function(error) {
+            showError('Error connecting to progress updates');
+        };
+
+    } catch (error) {
+        showError(error.message || 'Document translation failed');
+    } finally {
+        translateButton.disabled = false;
+        translateButton.textContent = 'Translate Document';
+    }
+}
+
+function showProgress() {
+    const progressContainer = document.getElementById('translation-progress');
+    progressContainer.style.display = 'block';
+    updateProgress(0, 'Starting translation...');
+}
+
+function updateProgress(percent, message) {
+    const progressFill = document.querySelector('.progress-fill');
+    const progressText = document.querySelector('.progress-text');
+    
+    progressFill.style.width = `${percent}%`;
+    progressText.textContent = message;
+}
+
+function hideProgress() {
+    const progressContainer = document.getElementById('translation-progress');
+    progressContainer.style.display = 'none';
+}
+
+function showError(message) {
+    const errorDiv = document.getElementById('error-message');
+    errorDiv.textContent = message;
+    errorDiv.style.display = 'block';
+}
+
+function hideError() {
+    const errorDiv = document.getElementById('error-message');
+    errorDiv.style.display = 'none';
+}
+
+async function downloadTranslatedFile(url) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Download failed');
+
+        const blob = await response.blob();
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = new URL(url).pathname.split('/').pop();
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(downloadUrl);
+        document.body.removeChild(a);
+
+        hideProgress();
+    } catch (error) {
+        showError('Error downloading translated file');
+    }
+}
+    </script>
+</body>
+</html>
