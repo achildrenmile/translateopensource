@@ -1,6 +1,7 @@
 # Translation Web App
 
-A web application for translations using the M2M-100 model. https://huggingface.co/facebook/m2m100_418M
+A web application for translations using the M2M-100 model. https://huggingface.co/facebook/m2m100_418M.
+Clone from https://github.com/achildrenmile/translateopensource and adapted for IFX.
 
 ## Setup
 

@@ -4,147 +4,106 @@ from openpyxl import load_workbook
 from pptx import Presentation
 import tempfile
 import os
-from typing import List, Tuple, BinaryIO
 
 class DocumentTranslator:
     def __init__(self, translation_model):
         self.model = translation_model
 
-    def translate_docx(self, file: BinaryIO, source_lang: str, target_lang: str) -> bytes:
-        """Translate Word document while preserving formatting"""
-        # Save uploaded file to temp file
-        with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as tmp_file:
-            tmp_file.write(file.read())
+    async def translate_docx_with_progress(self, content: bytes, source_lang: str, target_lang: str, progress_callback):
+        # Save content to temp file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp_file:
+            tmp_file.write(content)
             tmp_path = tmp_file.name
 
         try:
-            # Load the document
             doc = Document(tmp_path)
-            
-            # Translate each paragraph
+            total_items = len(doc.paragraphs) + sum(len(table.rows) * len(table.columns) for table in doc.tables)
+            processed = 0
+
+            # Translate paragraphs
             for paragraph in doc.paragraphs:
                 if paragraph.text.strip():
-                    # Preserve formatting by getting runs (formatted pieces)
-                    runs = paragraph.runs
-                    if runs:
-                        # Translate the text while keeping formatting
-                        translated_text = self.model.translate(
-                            paragraph.text,
-                            source_lang,
-                            target_lang
-                        )
-                        
-                        # Update only the first run with translated text
-                        runs[0].text = translated_text
-                        # Clear other runs to avoid duplication
-                        for run in runs[1:]:
-                            run.text = ""
+                    paragraph.text = self.model.translate(paragraph.text, source_lang, target_lang)
+                processed += 1
+                progress_callback(int(processed * 100 / total_items), "Translating document content...")
 
             # Translate tables
             for table in doc.tables:
                 for row in table.rows:
                     for cell in row.cells:
-                        for paragraph in cell.paragraphs:
-                            if paragraph.text.strip():
-                                translated_text = self.model.translate(
-                                    paragraph.text,
-                                    source_lang,
-                                    target_lang
-                                )
-                                paragraph.text = translated_text
+                        if cell.text.strip():
+                            cell.text = self.model.translate(cell.text, source_lang, target_lang)
+                        processed += 1
+                        progress_callback(int(processed * 100 / total_items), "Translating tables...")
 
-            # Save translated document
-            output_path = tmp_path.replace('.docx', '_translated.docx')
-            doc.save(output_path)
-
-            # Read the file content
-            with open(output_path, 'rb') as f:
-                translated_content = f.read()
-
-            return translated_content
-        
+            doc.save(tmp_path)
+            with open(tmp_path, 'rb') as f:
+                return f.read()
         finally:
-            # Cleanup temp files
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
-            if os.path.exists(output_path):
-                os.remove(output_path)
 
-    def translate_xlsx(self, file: BinaryIO, source_lang: str, target_lang: str) -> bytes:
-        """Translate Excel file while preserving formatting"""
-        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp_file:
-            tmp_file.write(file.read())
+    async def translate_xlsx_with_progress(self, content: bytes, source_lang: str, target_lang: str, progress_callback):
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            tmp_file.write(content)
             tmp_path = tmp_file.name
 
         try:
-            # Load workbook
             wb = load_workbook(tmp_path)
-            
-            # Process each worksheet
+            total_sheets = len(wb.sheetnames)
+            processed_sheets = 0
+
             for sheet in wb.worksheets:
-                for row in sheet.iter_rows():
+                rows = list(sheet.rows)
+                total_cells = sum(1 for row in rows for cell in row if cell.value and isinstance(cell.value, str))
+                processed_cells = 0
+
+                for row in rows:
                     for cell in row:
                         if cell.value and isinstance(cell.value, str):
-                            # Translate cell content
-                            translated_text = self.model.translate(
-                                cell.value,
-                                source_lang,
-                                target_lang
-                            )
-                            cell.value = translated_text
+                            cell.value = self.model.translate(cell.value, source_lang, target_lang)
+                            processed_cells += 1
+                            progress = int((processed_sheets * 100 / total_sheets) + 
+                                        (processed_cells * 100 / total_cells / total_sheets))
+                            progress_callback(min(progress, 99), f"Translating sheet {sheet.title}...")
 
-            # Save translated workbook
-            output_path = tmp_path.replace('.xlsx', '_translated.xlsx')
-            wb.save(output_path)
+                processed_sheets += 1
 
-            # Read the file content
-            with open(output_path, 'rb') as f:
-                translated_content = f.read()
-
-            return translated_content
-
+            wb.save(tmp_path)
+            with open(tmp_path, 'rb') as f:
+                return f.read()
         finally:
-            # Cleanup temp files
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
-            if os.path.exists(output_path):
-                os.remove(output_path)
 
-    def translate_pptx(self, file: BinaryIO, source_lang: str, target_lang: str) -> bytes:
-        """Translate PowerPoint file while preserving formatting"""
-        with tempfile.NamedTemporaryFile(suffix='.pptx', delete=False) as tmp_file:
-            tmp_file.write(file.read())
+    async def translate_pptx_with_progress(self, content: bytes, source_lang: str, target_lang: str, progress_callback):
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pptx') as tmp_file:
+            tmp_file.write(content)
             tmp_path = tmp_file.name
 
         try:
-            # Load presentation
             prs = Presentation(tmp_path)
-            
-            # Process each slide
+            total_slides = len(prs.slides)
+            processed_slides = 0
+
             for slide in prs.slides:
-                for shape in slide.shapes:
-                    if hasattr(shape, "text") and shape.text.strip():
-                        # Translate shape text
-                        translated_text = self.model.translate(
-                            shape.text,
-                            source_lang,
-                            target_lang
-                        )
-                        shape.text = translated_text
+                shapes = [shape for shape in slide.shapes if hasattr(shape, "text")]
+                total_shapes = len(shapes)
+                processed_shapes = 0
 
-            # Save translated presentation
-            output_path = tmp_path.replace('.pptx', '_translated.pptx')
-            prs.save(output_path)
+                for shape in shapes:
+                    if shape.text.strip():
+                        shape.text = self.model.translate(shape.text, source_lang, target_lang)
+                    processed_shapes += 1
+                    progress = int((processed_slides * 100 / total_slides) + 
+                                (processed_shapes * 100 / total_shapes / total_slides))
+                    progress_callback(min(progress, 99), f"Translating slide {processed_slides + 1}...")
 
-            # Read the file content
-            with open(output_path, 'rb') as f:
-                translated_content = f.read()
+                processed_slides += 1
 
-            return translated_content
-
+            prs.save(tmp_path)
+            with open(tmp_path, 'rb') as f:
+                return f.read()
         finally:
-            # Cleanup temp files
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
-            if os.path.exists(output_path):
-                os.remove(output_path)

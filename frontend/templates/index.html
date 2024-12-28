@@ -312,7 +312,8 @@ async function translateDocument() {
         const data = await response.json();
         
         // Connect to WebSocket for progress updates
-        const ws = new WebSocket(`ws://${window.location.host}/ws/translation-progress/${data.task_id}`);
+        //const ws = new WebSocket(`ws://${window.location.host}/ws/translation-progress/${data.task_id}`);
+        const ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/translation-progress/${data.task_id}`);
         
         ws.onmessage = function(event) {
             const progress = JSON.parse(event.data);
@@ -372,21 +373,27 @@ function hideError() {
 async function downloadTranslatedFile(url) {
     try {
         const response = await fetch(url);
-        if (!response.ok) throw new Error('Download failed');
+        if (!response.ok) {
+            console.error('Download failed:', response.status, response.statusText);
+            throw new Error(`Download failed: ${response.status}`);
+        }
 
         const blob = await response.blob();
+        if (blob.size === 0) {
+            throw new Error('Empty file received');
+        }
+
         const downloadUrl = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = downloadUrl;
-        a.download = new URL(url).pathname.split('/').pop();
+        a.download = url.split('/').pop();
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(downloadUrl);
         document.body.removeChild(a);
-
-        hideProgress();
     } catch (error) {
-        showError('Error downloading translated file');
+        console.error('Download error:', error);
+        alert(`Download failed: ${error.message}`);
     }
 }
     </script>
