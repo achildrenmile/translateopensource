@@ -40,6 +40,19 @@
                         <!-- Will be populated by JavaScript -->
                     </select>
                     <textarea id="translatedText" readonly placeholder="Translation will appear here"></textarea>
+
+                    
+                    <div id="translation-metrics" class="metrics-box" style="display: none;">
+                        <h4>Translation Metrics</h4>
+                        <ul>
+                            <li>Translation Speed: <span id="tokens-per-second">0</span> tokens/second</li>
+                            <li>Input Tokens: <span id="input-tokens">0</span></li>
+                            <li>Output Tokens: <span id="output-tokens">0</span></li>
+                            <li>Total Tokens: <span id="total-tokens">0</span></li>
+                            <li>Processing Time: <span id="processing-time">0</span> seconds</li>
+                            <li>Cache Status: <span id="cache-status">Not cached</span></li>
+                        </ul>
+                    </div>
                 </div>
             </div>
         </div>
@@ -62,8 +75,8 @@
                 </div>
 
                 <div class="file-upload">
-                    <label for="documentFile">Upload Document (.docx, .xlsx, .pptx)</label>
-                    <input type="file" id="documentFile" accept=".docx,.xlsx,.pptx" />
+                    <label for="documentFile">Upload Document (.docx, .xlsx, .pptx, .pdf)</label>
+                    <input type="file" id="documentFile" accept=".docx,.xlsx,.pptx,.pdf,.html,.htm,.txt" />
                 </div>
 
                 <button onclick="translateDocument()" class="translate-button">Translate Document</button>
@@ -74,6 +87,9 @@
                         <li>Word Documents (.docx)</li>
                         <li>Excel Spreadsheets (.xlsx)</li>
                         <li>PowerPoint Presentations (.pptx)</li>
+                        <li>PDF Documents (.pdf)</li>
+                        <li>HTML Files (.html, .htm)</li>
+                        <li>Text Files (.txt)</li>
                     </ul>
                 </div>
                  <!-- Add progress indicator -->
@@ -83,7 +99,17 @@
                 </div>
                 <div class="progress-text"></div>
                 </div>
-
+                <div id="document-translation-metrics" class="metrics-box" style="display: none;">
+                    <h4>Document Translation Metrics</h4>
+                    <ul>
+                        <li>Translation Speed: <span id="doc-tokens-per-second">0</span> tokens/second</li>
+                        <li>Input Tokens: <span id="doc-input-tokens">0</span></li>
+                        <li>Output Tokens: <span id="doc-output-tokens">0</span></li>
+                        <li>Total Tokens: <span id="doc-total-tokens">0</span></li>
+                        <li>Processing Time: <span id="doc-processing-time">0</span> seconds</li>
+                    </ul>
+                </div>
+                
                 <!-- Add error display -->
                 <div id="error-message" class="error-message" style="display: none;"></div>
 
@@ -97,6 +123,20 @@
     </div>
 
     <script>
+         // Global translation state tracking
+        let isTranslationInProgress = false;
+        
+        // Function to start translation
+        function startTranslation() {
+            isTranslationInProgress = true;
+            // Optionally, you can add more logic here if needed
+        }
+        
+        // Function to end translation
+        function endTranslation() {
+            isTranslationInProgress = false;
+            // Optionally, you can add more cleanup logic here
+        }
         // Tab switching
         function switchTab(tabId) {
             // Hide all tabs
@@ -115,7 +155,7 @@
         // Existing text translation code
         async function loadLanguages() {
             try {
-                const response = await fetch('/languages/');
+                const response = await fetch('/api/languages/');
                 const data = await response.json();
                 
                 const sourceLang = document.getElementById('sourceLang');
@@ -145,7 +185,7 @@
                     $(`#${id}`).val('en').trigger('change');
                 });
                 ['targetLang', 'docTargetLang'].forEach(id => {
-                    $(`#${id}`).val('es').trigger('change');
+                    $(`#${id}`).val('de').trigger('change');
                 });
                 
             } catch (error) {
@@ -155,47 +195,66 @@
         }
 
         async function translateText() {
-            const sourceText = document.getElementById('sourceText').value;
-            const sourceLang = document.getElementById('sourceLang').value;
-            const targetLang = document.getElementById('targetLang').value;
-            
-            if (!sourceText.trim()) {
-                alert('Please enter text to translate');
-                return;
-            }
-            
-            const translateButton = document.querySelector('.translate-button');
-            translateButton.disabled = true;
-            translateButton.textContent = 'Translating...';
-            
-            try {
-                const response = await fetch('/translate/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        text: sourceText,
-                        source_lang: sourceLang,
-                        target_lang: targetLang
-                    })
-                });
-                
-                if (!response.ok) {
-                    throw new Error('Translation failed');
-                }
-                
-                const data = await response.json();
-                document.getElementById('translatedText').value = data.translation;
-            } catch (error) {
-                alert('Translation failed. Please try again.');
-                console.error('Translation error:', error);
-            } finally {
-                translateButton.disabled = false;
-                translateButton.textContent = 'Translate';
-            }
-        }
+    const sourceText = document.getElementById('sourceText').value;
+    const sourceLang = document.getElementById('sourceLang').value;
+    const targetLang = document.getElementById('targetLang').value;
+    
+    if (!sourceText.trim()) {
+        alert('Please enter text to translate');
+        return;
+    }
+    
+    const translateButton = document.querySelector('.translate-button');
+    translateButton.disabled = true;
+    translateButton.textContent = 'Translating...';
+    
+    // Start translation
+    startTranslation();
 
+    try {
+        const response = await fetch('/api/translate/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                text: sourceText,
+                source_lang: sourceLang,
+                target_lang: targetLang
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Translation failed');
+        }
+        
+        const data = await response.json();
+        
+        // Check if translation is the first element of an array or direct string
+        const translatedText = Array.isArray(data.translation) ? data.translation[0] : data.translation;
+        document.getElementById('translatedText').value = translatedText;
+        
+        // Update metrics display
+        const metricsDiv = document.getElementById('translation-metrics');
+        if (data.metrics) {
+            document.getElementById('tokens-per-second').textContent = data.metrics.tokens_per_second;
+            document.getElementById('input-tokens').textContent = data.metrics.input_tokens;
+            document.getElementById('output-tokens').textContent = data.metrics.output_tokens;
+            document.getElementById('total-tokens').textContent = data.metrics.total_tokens;
+            document.getElementById('processing-time').textContent = data.metrics.processing_time;
+            document.getElementById('cache-status').textContent = data.metrics.cached ? 'Cached' : 'Not cached';
+            metricsDiv.style.display = 'block';
+        }
+    } catch (error) {
+        alert('Translation failed. Please try again.');
+        console.error('Translation error:', error);
+    } finally {
+        translateButton.disabled = false;
+        translateButton.textContent = 'Translate';
+        // End translation
+        endTranslation();
+    }
+}
         // New document translation code
         async function translateDocument() {
             const fileInput = document.getElementById('documentFile');
@@ -217,8 +276,11 @@
             translateButton.disabled = true;
             translateButton.textContent = 'Translating Document...';
 
+            // Start translation
+            startTranslation();
+
             try {
-                const response = await fetch('/translate/document/', {
+                const response = await fetch('/api//translate/document/', {
                     method: 'POST',
                     body: formData
                 });
@@ -244,36 +306,72 @@
             } finally {
                 translateButton.disabled = false;
                 translateButton.textContent = 'Translate Document';
+                // End translation
+                endTranslation();
             }
         }
 
         // Load languages when page loads
         document.addEventListener('DOMContentLoaded', loadLanguages);
+        
+        // Add before unload event handler to warn user about ongoing translation
+        window.addEventListener('beforeunload', function(event) {
+            if (isTranslationInProgress) {
+                // Standard way to show a confirmation dialog
+                event.preventDefault(); 
+                // Some browsers require setting a return value
+                event.returnValue = 'A translation is currently in progress. Are you sure you want to leave?';
+                
+                // Return a string to trigger the confirmation dialog
+                return 'A translation is currently in progress. Are you sure you want to leave?';
+            }
+        });
 
         // File validation
 document.getElementById('documentFile').addEventListener('change', function(e) {
     const file = e.target.files[0];
     const fileInfo = document.getElementById('selected-file-info');
     const maxSize = 10 * 1024 * 1024; // 10MB
+    const allowedTypes = ['.docx', '.xlsx', '.pptx', '.pdf', '.html', '.htm', '.txt'];
 
     if (file) {
         const fileSize = (file.size / 1024 / 1024).toFixed(2);
         fileInfo.textContent = `${file.name} (${fileSize}MB)`;
 
+        // Check file size
         if (file.size > maxSize) {
             showError(`File too large. Maximum size is 10MB. Your file is ${fileSize}MB`);
             e.target.value = ''; // Clear the file input
             fileInfo.textContent = 'No file selected';
-        } else {
-            hideError();
+            return;
         }
+
+        // Check file type
+        const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+        if (!allowedTypes.includes(fileExtension)) {
+            showError('Invalid file type. Supported formats are: DOCX, XLSX, PPTX, PDF, HTML, and TXT');
+            e.target.value = '';
+            fileInfo.textContent = 'No file selected';
+            return;
+        }
+
+        hideError();
     } else {
         fileInfo.textContent = 'No file selected';
     }
 });
-
+// Add function to reset metrics display
+function resetDocumentMetrics() {
+    document.getElementById('doc-tokens-per-second').textContent = '0';
+    document.getElementById('doc-input-tokens').textContent = '0';
+    document.getElementById('doc-output-tokens').textContent = '0';
+    document.getElementById('doc-total-tokens').textContent = '0';
+    document.getElementById('doc-processing-time').textContent = '0';
+    document.getElementById('document-translation-metrics').style.display = 'none';
+}
 // Enhanced document translation
 async function translateDocument() {
+    resetDocumentMetrics();
     const fileInput = document.getElementById('documentFile');
     const sourceLang = document.getElementById('docSourceLang').value;
     const targetLang = document.getElementById('docTargetLang').value;
@@ -299,7 +397,7 @@ async function translateDocument() {
         showProgress();
 
         // Start translation
-        const response = await fetch('/translate/document/', {
+        const response = await fetch('/api/translate/document/', {
             method: 'POST',
             body: formData
         });
@@ -316,17 +414,28 @@ async function translateDocument() {
         const ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/translation-progress/${data.task_id}`);
         
         ws.onmessage = function(event) {
-            const progress = JSON.parse(event.data);
-            updateProgress(progress.progress, progress.message);
+    const progress = JSON.parse(event.data);
+    updateProgress(progress.progress, progress.message);
 
-            if (progress.status === 'completed') {
-                downloadTranslatedFile(progress.download_url);
-                ws.close();
-            } else if (progress.status === 'error') {
-                showError(progress.message);
-                ws.close();
-            }
-        };
+    if (progress.status === 'completed') {
+        // Show metrics if available
+        if (progress.metrics) {
+            const metrics = progress.metrics;
+            document.getElementById('doc-tokens-per-second').textContent = metrics.tokens_per_second;
+            document.getElementById('doc-input-tokens').textContent = metrics.input_tokens;
+            document.getElementById('doc-output-tokens').textContent = metrics.output_tokens;
+            document.getElementById('doc-total-tokens').textContent = metrics.total_tokens;
+            document.getElementById('doc-processing-time').textContent = metrics.processing_time;
+            document.getElementById('document-translation-metrics').style.display = 'block';
+        }
+
+        downloadTranslatedFile(progress.download_url, targetLang, file.name);
+        ws.close();
+    } else if (progress.status === 'error') {
+        showError(progress.message);
+        ws.close();
+    }
+};
 
         ws.onerror = function(error) {
             showError('Error connecting to progress updates');
